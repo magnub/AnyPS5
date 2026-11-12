@@ -20,6 +20,7 @@
 #include <codegen/x86/BlsLowering.hpp>
 #include <codegen/x86/ShiftLowering.hpp>
 #include <codegen/x86/BitfieldLowering.hpp>
+#include <codegen/x86/DepositExtractLowering.hpp>
 #include <codegen/x86/X64InstructionDecoder.hpp>
 #include <codegen/x86/X64OpcodeConstants.hpp>
 #include <codegen/x86/MulxLowering.hpp>
@@ -265,6 +266,8 @@ std::optional<Amd64OnlyMatch> Amd64OnlyInstructionMatcher::_matchRosetta(const D
         return _trampoline(ShiftName(shift->Operation), instr.Length, _outOfLine(instr.Length, trailing, [&](StubBodyBuilder& body) { EmitShift(body, *shift); }));
     if (const auto bitfield = DecodeBitfield(instr.Data, instr.Length))
         return _trampoline(BitfieldName(bitfield->Operation), instr.Length, _outOfLine(instr.Length, trailing, [&](StubBodyBuilder& body) { EmitBitfield(body, *bitfield); }));
+    if (const auto depositExtract = DecodeDepositExtract(instr.Data, instr.Length))
+        return _trampoline(DepositExtractName(depositExtract->Operation), instr.Length, _outOfLine(instr.Length, trailing, [&](StubBodyBuilder& body) { EmitDepositExtract(body, *depositExtract); }));
     if (instr.IsRdseed()) {
         std::vector<std::uint8_t> replacement(instr.Data, instr.Data + instr.Length);
         replacement[instr.OpcodeOffset() + 2] &= static_cast<std::uint8_t>(~(1u << X64OpcodeConstants::ModRmRegShift));
@@ -347,6 +350,10 @@ const char* Amd64OnlyInstructionMatcher::_emitOutOfLine(StubBodyBuilder& body, c
     if (const auto bitfield = _target == Amd64OnlyTarget::Rosetta ? DecodeBitfield(instr.Data, instr.Length) : std::nullopt) {
         EmitBitfield(body, *bitfield);
         return BitfieldName(bitfield->Operation);
+    }
+    if (const auto depositExtract = _target == Amd64OnlyTarget::Rosetta ? DecodeDepositExtract(instr.Data, instr.Length) : std::nullopt) {
+        EmitDepositExtract(body, *depositExtract);
+        return DepositExtractName(depositExtract->Operation);
     }
     if (_target == Amd64OnlyTarget::Rosetta && instr.IsRdtscp()) {
         body.Raw(_rdtscpReplacement(instr));
