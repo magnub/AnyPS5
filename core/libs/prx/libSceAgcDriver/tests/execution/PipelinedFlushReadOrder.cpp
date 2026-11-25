@@ -210,7 +210,12 @@ void TestMultisampledSingleClearDrainsDrawPipeline() {
     auto* mapped = static_cast<std::uint8_t*>(mmap(reinterpret_cast<void*>(FixedBase), FixedBytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0));
     if (mapped == MAP_FAILED) return;
 #else
-    return;
+    auto* mapped = static_cast<std::uint8_t*>(mmap(reinterpret_cast<void*>(FixedBase), FixedBytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+    if (mapped == MAP_FAILED) return;
+    if (reinterpret_cast<std::uintptr_t>(mapped) != FixedBase) {
+        munmap(mapped, FixedBytes);
+        return;
+    }
 #endif
 #endif
     struct FixedGuard {
