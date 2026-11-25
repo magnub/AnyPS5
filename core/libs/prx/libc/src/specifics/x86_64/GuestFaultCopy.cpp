@@ -1,13 +1,25 @@
-#if defined(__linux__) && defined(__x86_64__)
-#include "prx/libc/include/specifics/linux/GuestFaultCopy.hpp"
+#if (defined(__linux__) || defined(__APPLE__)) && defined(__x86_64__)
+#include "prx/libc/include/specifics/x86_64/GuestFaultCopy.hpp"
 
 #include <atomic>
 #include <csignal>
+#include <cstdint>
 #include <cstdlib>
-#include <sys/syscall.h>
-#include <unistd.h>
 #include <iterator>
+#ifdef __APPLE__
+#include <pthread.h>
+#include <sys/ucontext.h>
+#define GUEST_FAULT_COPY_SYMBOL(name) "_" #name
+#define GUEST_FAULT_COPY_LABEL(name) ".globl _" #name "\n.private_extern _" #name "\n.alt_entry _" #name "\n_" #name ":\n"
+#define GUEST_FAULT_COPY_LOCAL(name) "L" #name
+#else
+#include <sys/syscall.h>
 #include <ucontext.h>
+#include <unistd.h>
+#define GUEST_FAULT_COPY_SYMBOL(name) #name
+#define GUEST_FAULT_COPY_LABEL(name) ".globl " #name "\n.hidden " #name "\n" #name ":\n"
+#define GUEST_FAULT_COPY_LOCAL(name) ".L" #name
+#endif
 
 extern "C" {
 std::size_t GuestFaultCopyBytes(void* destination, const void* source, std::size_t bytes);
@@ -20,59 +32,58 @@ extern const char GuestFaultCopyResume[];
 }
 
 __asm__(
+#ifdef __APPLE__
+    ".text\n"
+    ".p2align 4\n"
+    ".globl _GuestFaultCopyBytes\n"
+    ".private_extern _GuestFaultCopyBytes\n"
+    "_GuestFaultCopyBytes:\n"
+#else
     ".pushsection .text\n"
     ".p2align 4\n"
     ".globl GuestFaultCopyBytes\n"
     ".hidden GuestFaultCopyBytes\n"
     ".type GuestFaultCopyBytes, @function\n"
     "GuestFaultCopyBytes:\n"
+#endif
     ".cfi_startproc\n"
     "    movq %rdx, %rcx\n"
     "    cmpq $4, %rcx\n"
-    "    ja GuestFaultCopyAccess\n"
-    "    je .LGuestFaultCopyWord\n"
+    "    ja " GUEST_FAULT_COPY_SYMBOL(GuestFaultCopyAccess) "\n"
+    "    je " GUEST_FAULT_COPY_LOCAL(GuestFaultCopyWord) "\n"
     "    testq %rcx, %rcx\n"
-    "    jz GuestFaultCopyResume\n"
-    ".globl GuestFaultCopyLoad\n"
-    ".hidden GuestFaultCopyLoad\n"
-    "GuestFaultCopyLoad:\n"
+    "    jz " GUEST_FAULT_COPY_SYMBOL(GuestFaultCopyResume) "\n"
+    GUEST_FAULT_COPY_LABEL(GuestFaultCopyLoad)
     "    movb (%rsi), %al\n"
-    ".globl GuestFaultCopyStore\n"
-    ".hidden GuestFaultCopyStore\n"
-    "GuestFaultCopyStore:\n"
+    GUEST_FAULT_COPY_LABEL(GuestFaultCopyStore)
     "    movb %al, (%rdi)\n"
     "    incq %rsi\n"
     "    incq %rdi\n"
     "    decq %rcx\n"
-    "    jnz GuestFaultCopyLoad\n"
-    "    jmp GuestFaultCopyResume\n"
-    ".LGuestFaultCopyWord:\n"
+    "    jnz " GUEST_FAULT_COPY_SYMBOL(GuestFaultCopyLoad) "\n"
+    "    jmp " GUEST_FAULT_COPY_SYMBOL(GuestFaultCopyResume) "\n"
+    GUEST_FAULT_COPY_LOCAL(GuestFaultCopyWord) ":\n"
     "    movq %rsi, %rax\n"
     "    orq %rdi, %rax\n"
     "    testb $3, %al\n"
-    "    jnz GuestFaultCopyLoad\n"
-    ".globl GuestFaultCopyWordLoad\n"
-    ".hidden GuestFaultCopyWordLoad\n"
-    "GuestFaultCopyWordLoad:\n"
+    "    jnz " GUEST_FAULT_COPY_SYMBOL(GuestFaultCopyLoad) "\n"
+    GUEST_FAULT_COPY_LABEL(GuestFaultCopyWordLoad)
     "    movl (%rsi), %eax\n"
-    ".globl GuestFaultCopyWordStore\n"
-    ".hidden GuestFaultCopyWordStore\n"
-    "GuestFaultCopyWordStore:\n"
+    GUEST_FAULT_COPY_LABEL(GuestFaultCopyWordStore)
     "    movl %eax, (%rdi)\n"
     "    xorq %rcx, %rcx\n"
-    "    jmp GuestFaultCopyResume\n"
-    ".globl GuestFaultCopyAccess\n"
-    ".hidden GuestFaultCopyAccess\n"
-    "GuestFaultCopyAccess:\n"
+    "    jmp " GUEST_FAULT_COPY_SYMBOL(GuestFaultCopyResume) "\n"
+    GUEST_FAULT_COPY_LABEL(GuestFaultCopyAccess)
     "    rep movsb\n"
-    ".globl GuestFaultCopyResume\n"
-    ".hidden GuestFaultCopyResume\n"
-    "GuestFaultCopyResume:\n"
+    GUEST_FAULT_COPY_LABEL(GuestFaultCopyResume)
     "    movq %rcx, %rax\n"
     "    ret\n"
     ".cfi_endproc\n"
+#ifndef __APPLE__
     ".size GuestFaultCopyBytes, .-GuestFaultCopyBytes\n"
-    ".popsection\n");
+    ".popsection\n"
+#endif
+    );
 
 namespace {
 
@@ -82,9 +93,27 @@ constexpr unsigned AllSlots = (1u << std::size(CopySignals)) - 1;
 
 struct sigaction g_previous[2][std::size(CopySignals)]{};
 std::atomic<int> g_active{0};
-std::atomic<pid_t> g_installer{0};
+std::atomic<std::uint64_t> g_installer{0};
 std::atomic<unsigned> g_pending{0};
 std::atomic<bool> g_ready{false};
+
+bool SentByUser(const siginfo_t* info) {
+#ifdef __APPLE__
+    return info != nullptr && (info->si_code <= 0 || info->si_code >= SI_USER);
+#else
+    return info != nullptr && info->si_code <= 0;
+#endif
+}
+
+std::uint64_t ThreadId() {
+#ifdef __APPLE__
+    std::uint64_t id = 0;
+    pthread_threadid_np(nullptr, &id);
+    return id;
+#else
+    return static_cast<std::uint64_t>(syscall(SYS_gettid));
+#endif
+}
 
 void Chain(int signal, siginfo_t* info, void* context) {
     std::size_t slot = 0;
@@ -104,12 +133,12 @@ void Chain(int signal, siginfo_t* info, void* context) {
         previous.sa_handler(signal);
         return;
     }
-    if (info != nullptr && info->si_code <= 0 && previous.sa_handler == SIG_IGN) return;
+    if (SentByUser(info) && previous.sa_handler == SIG_IGN) return;
     struct sigaction fallback{};
     fallback.sa_handler = SIG_DFL;
     sigemptyset(&fallback.sa_mask);
     sigaction(signal, &fallback, nullptr);
-    if (info != nullptr && info->si_code <= 0) raise(signal);
+    if (SentByUser(info)) raise(signal);
 }
 
 void OnCopyFault(int signal, siginfo_t* info, void* context) {
@@ -144,8 +173,8 @@ bool InstallOwned(unsigned slots) {
 }
 
 bool Install(unsigned slots) {
-    const auto self = static_cast<pid_t>(syscall(SYS_gettid));
-    for (pid_t expected = 0; !g_installer.compare_exchange_weak(expected, self, std::memory_order_acquire); expected = 0) {
+    const auto self = ThreadId();
+    for (std::uint64_t expected = 0; !g_installer.compare_exchange_weak(expected, self, std::memory_order_acquire); expected = 0) {
         if (expected == self) {
             g_pending.fetch_or(slots, std::memory_order_release);
             return true;
@@ -186,12 +215,18 @@ bool Copy(void* destination, const void* source, std::size_t bytes) {
 }
 
 bool Resume(const siginfo_t* info, void* context) {
-    if (info == nullptr || context == nullptr || info->si_code <= 0) return false;
+    if (info == nullptr || context == nullptr || SentByUser(info)) return false;
     if (info->si_signo != SIGSEGV && info->si_signo != SIGBUS) return false;
-    auto& registers = static_cast<ucontext_t*>(context)->uc_mcontext.gregs;
-    const auto instruction = registers[REG_RIP];
-    if (instruction != reinterpret_cast<greg_t>(GuestFaultCopyAccess) && instruction != reinterpret_cast<greg_t>(GuestFaultCopyLoad) && instruction != reinterpret_cast<greg_t>(GuestFaultCopyStore) && instruction != reinterpret_cast<greg_t>(GuestFaultCopyWordLoad) && instruction != reinterpret_cast<greg_t>(GuestFaultCopyWordStore)) return false;
-    registers[REG_RIP] = reinterpret_cast<greg_t>(GuestFaultCopyResume);
+#ifdef __APPLE__
+    const auto state = static_cast<ucontext_t*>(context)->uc_mcontext;
+    if (state == nullptr) return false;
+    auto& rip = state->__ss.__rip;
+#else
+    auto& rip = static_cast<ucontext_t*>(context)->uc_mcontext.gregs[REG_RIP];
+#endif
+    const auto instruction = static_cast<std::uintptr_t>(rip);
+    if (instruction != reinterpret_cast<std::uintptr_t>(GuestFaultCopyAccess) && instruction != reinterpret_cast<std::uintptr_t>(GuestFaultCopyLoad) && instruction != reinterpret_cast<std::uintptr_t>(GuestFaultCopyStore) && instruction != reinterpret_cast<std::uintptr_t>(GuestFaultCopyWordLoad) && instruction != reinterpret_cast<std::uintptr_t>(GuestFaultCopyWordStore)) return false;
+    rip = static_cast<decltype(+rip)>(reinterpret_cast<std::uintptr_t>(GuestFaultCopyResume));
     return true;
 }
 

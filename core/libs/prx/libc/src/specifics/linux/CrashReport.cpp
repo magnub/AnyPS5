@@ -2,7 +2,7 @@
 #include "prx/libc/include/CallTrace.hpp"
 #include "prx/libc/include/CrashText.hpp"
 #include "prx/libc/include/LogFile.hpp"
-#include "prx/libc/include/specifics/linux/GuestFaultCopy.hpp"
+#include "prx/libc/include/specifics/x86_64/GuestFaultCopy.hpp"
 
 #include <atomic>
 #include <cerrno>

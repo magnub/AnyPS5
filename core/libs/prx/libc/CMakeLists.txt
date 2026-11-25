@@ -161,9 +161,9 @@ target_sources(libc PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src/specifics/windows/CrashReport.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/specifics/windows/GuestGs.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/specifics/x86_64/CallTrace.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/specifics/x86_64/GuestFaultCopy.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/specifics/linux/CrashReport.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/specifics/linux/DlIteratePhdr.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/specifics/linux/GuestFaultCopy.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/specifics/macos/GuestGs.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/specifics/macos/GuestImages.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/Strings.cpp

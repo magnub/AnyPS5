@@ -1,4 +1,4 @@
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+if((CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$") OR (APPLE AND (CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$" OR CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")))
     add_test_executable(guest_fault_copy_tests ${LIBS_INCLUDE_DIR}/tests/GuestFaultCopy.cpp)
     target_include_directories(guest_fault_copy_tests PRIVATE ${LIBS_INCLUDE_DIR})
     target_link_libraries(guest_fault_copy_tests PRIVATE libkernel libc)
