@@ -33,12 +33,11 @@
 #include <cfloat>
 #include <climits>
 #include <cmath>
-#include <numbers>
 
 namespace {
 
-constexpr long double HalfPi = std::numbers::pi_v<long double> / 2;
-constexpr long double Ln2 = std::numbers::ln2_v<long double>;
+constexpr long double HalfPi = 1.57079632679489661923132169163975144L;
+constexpr long double Ln2 = 0.693147180559945309417232121458176568L;
 constexpr long double RecipEpsilon = 1 / LDBL_EPSILON;
 constexpr int Cutoff = LDBL_MANT_DIG / 2 + 1;
 const long double SqrtMin = std::sqrt(LDBL_MIN);
